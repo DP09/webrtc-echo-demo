@@ -4,43 +4,253 @@
     <head>
         <meta charset="UTF-8">
         <title>WebRTC Echo Test</title>
-      </head>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: 50px auto;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .container {
+                background: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            button {
+                background: #4CAF50;
+                color: white;
+                padding: 15px 30px;
+                border: none;
+                border-radius: 5px;
+                font-size: 16px;
+                cursor: pointer;
+                margin: 10px 5px;
+            }
+            button:hover { background: #45a049; }
+            button:disabled { 
+                background: #cccccc;
+                cursor: not-allowed;
+            }
+            .status {
+                margin: 20px 0;
+                padding: 15px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            .status.connecting { background: #fff3cd; color: #856404; }
+            .status.connected { background: #d4edda; color: #155724; }
+            .status.error { background: #f8d7da; color: #721c24; }
+            .timing {
+                background: #e7f3ff;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 10px 0;
+            }
+        </style>
+    </head>
 <body>
-  <h1>🎤 WebRTC Echo 테스트</h1>
-  <button id="start">연결 시작</button>
-  <script>
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-    });
+    <div class="container">
+        <h1>🎤 WebRTC Echo 테스트</h1>
+        <p>마이크를 통해 말하면 echo로 들려옵니다</p>
+        
+        <button id="start">연결 시작</button>
+        <button id="stop" disabled>연결 종료</button>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        <div id="timing" class="timing" style="display: none;"></div>
+        
+        <div id="connectionInfo" style="margin-top: 20px; display: none;">
+            <h3>연결 정보</h3>
+            <p id="connectionState">상태: -</p>
+            <p id="iceState">ICE 상태: -</p>
+        </div>
+    </div>
 
-    let localStream;
+    <script>
+        let pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
 
-    async function start() {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        let localStream;
+        let startTime;
+        let connectTime;
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+        const statusEl = document.getElementById('status');
+        const timingEl = document.getElementById('timing');
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
+        const connectionInfoEl = document.getElementById('connectionInfo');
+        const connectionStateEl = document.getElementById('connectionState');
+        const iceStateEl = document.getElementById('iceState');
 
-      const response = await fetch('/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pc.localDescription)
-      });
+        function showStatus(message, type = 'connecting') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+        }
 
-      const answer = await response.json();
-      await pc.setRemoteDescription(answer);
+        function showTiming(message) {
+            timingEl.innerHTML = message;
+            timingEl.style.display = 'block';
+        }
 
-      pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.autoplay = true;
-        document.body.appendChild(audio);
-      };
-    }
+        function updateConnectionInfo() {
+            connectionStateEl.textContent = `상태: ${pc.connectionState}`;
+            iceStateEl.textContent = `ICE 상태: ${pc.iceConnectionState}`;
+            connectionInfoEl.style.display = 'block';
+        }
 
-    document.getElementById('start').onclick = start;
-  </script>
+        function setupPeerConnectionEvents() {
+            // 연결 상태 모니터링
+            pc.onconnectionstatechange = () => {
+                console.log('Connection state:', pc.connectionState);
+                updateConnectionInfo();
+                
+                if (pc.connectionState === 'connected' && !connectTime) {
+                    connectTime = Date.now();
+                    const totalTime = connectTime - startTime;
+                    showStatus(`✅ 연결 완료! (${totalTime}ms)`, 'connected');
+                    showTiming(`
+                        <strong>연결 시간 분석:</strong><br>
+                        • 전체 연결 시간: <strong>${totalTime}ms</strong><br>
+                        • 목표: 1-2초 (1000-2000ms)<br>
+                        • 상태: ${totalTime < 2000 ? '✅ 목표 달성' : '❌ 개선 필요'}
+                    `);
+                } else if (pc.connectionState === 'failed') {
+                    showStatus('❌ 연결 실패', 'error');
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log('ICE connection state:', pc.iceConnectionState);
+                updateConnectionInfo();
+                
+                if (pc.iceConnectionState === 'failed') {
+                    showStatus('❌ ICE 연결 실패', 'error');
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            };
+
+            pc.ontrack = (event) => {
+                console.log('Received track:', event.track.kind);
+                const remoteStream = event.streams[0];
+                const audio = new Audio();
+                audio.srcObject = remoteStream;
+                audio.autoplay = true;
+                audio.volume = 1.0;
+                document.body.appendChild(audio);
+                
+                showStatus('🎵 음성 스트림 연결됨! 말해보세요!', 'connected');
+            };
+        }
+
+        async function start() {
+            try {
+                // 이미 연결 중이라면 중복 실행 방지
+                if (pc.connectionState === 'connecting' || pc.connectionState === 'connected') {
+                    showStatus('⚠️ 이미 연결 중입니다', 'connecting');
+                    return;
+                }
+
+                startTime = Date.now();
+                connectTime = null;
+                
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                
+                showStatus('🎤 마이크 권한 요청 중...');
+                
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                localStream.getTracks().forEach(track => {
+                    console.log('Adding track:', track.kind);
+                    pc.addTrack(track, localStream);
+                });
+
+                showStatus('📡 WebRTC 연결 설정 중...');
+                
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                showStatus('🌐 서버와 통신 중...');
+                
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(pc.localDescription)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`서버 오류: ${response.status}`);
+                }
+
+                const answer = await response.json();
+                console.log('Received answer from server');
+                
+                await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+                showStatus('🔄 연결 중... ICE candidate 교환 중');
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                showStatus(`❌ 오류: ${error.message}`, 'error');
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+
+        function stop() {
+            console.log('Stopping connection...');
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    console.log('Stopping track:', track.kind);
+                    track.stop();
+                });
+                localStream = null;
+            }
+            
+            if (pc) {
+                pc.close();
+            }
+            
+            // 새로운 PeerConnection 생성
+            pc = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            });
+            
+            // 이벤트 핸들러 다시 설정
+            setupPeerConnectionEvents();
+            
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            
+            statusEl.style.display = 'none';
+            timingEl.style.display = 'none';
+            connectionInfoEl.style.display = 'none';
+            
+            showStatus('🔌 연결이 종료되었습니다');
+            
+            // 기존 audio 엘리먼트들 제거
+            document.querySelectorAll('audio').forEach(audio => audio.remove());
+        }
+
+        // 초기 이벤트 설정
+        setupPeerConnectionEvents();
+        
+        startBtn.onclick = start;
+        stopBtn.onclick = stop;
+    </script>
 </body>
 </html>
