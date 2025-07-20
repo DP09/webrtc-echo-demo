@@ -9,7 +9,7 @@ from typing import Set, Dict, Any
 
 from aiohttp import web
 from aiohttp_cors import setup as cors_setup, ResourceOptions
-from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
+from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
 
 ROOT = os.path.dirname(__file__)
@@ -57,7 +57,29 @@ async def offer(request):
         
         offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
-        pc = RTCPeerConnection()
+        pc = RTCPeerConnection(configuration=RTCConfiguration(
+            iceServers=[
+                RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+                RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+                RTCIceServer(urls=["stun:stun2.l.google.com:19302"]),
+                RTCIceServer(urls=["stun:stun.cloudflare.com:3478"]),
+                RTCIceServer(
+                    urls=["turn:openrelay.metered.ca:80"],
+                    username="openrelayproject",
+                    credential="openrelayproject"
+                ),
+                RTCIceServer(
+                    urls=["turn:openrelay.metered.ca:443"],
+                    username="openrelayproject", 
+                    credential="openrelayproject"
+                ),
+                RTCIceServer(
+                    urls=["turn:openrelay.metered.ca:443?transport=tcp"],
+                    username="openrelayproject",
+                    credential="openrelayproject"
+                )
+            ]
+        ))
         pcs.add(pc)
         pc_created_time = asyncio.get_event_loop().time()
         

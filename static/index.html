@@ -74,9 +74,26 @@
                 { urls: "stun:stun.l.google.com:19302" },
                 { urls: "stun:stun1.l.google.com:19302" },
                 { urls: "stun:stun2.l.google.com:19302" },
-                { urls: "stun:stun.cloudflare.com:3478" }
+                { urls: "stun:stun.cloudflare.com:3478" },
+                // 무료 TURN 서버 추가
+                {
+                    urls: "turn:openrelay.metered.ca:80",
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                },
+                {
+                    urls: "turn:openrelay.metered.ca:443",
+                    username: "openrelayproject", 
+                    credential: "openrelayproject"
+                },
+                {
+                    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                }
             ],
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all'
         });
 
         let localStream;
@@ -250,9 +267,26 @@
                     { urls: "stun:stun.l.google.com:19302" },
                     { urls: "stun:stun1.l.google.com:19302" },
                     { urls: "stun:stun2.l.google.com:19302" },
-                    { urls: "stun:stun.cloudflare.com:3478" }
+                    { urls: "stun:stun.cloudflare.com:3478" },
+                    // 무료 TURN 서버 추가
+                    {
+                        urls: "turn:openrelay.metered.ca:80",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject", 
+                        credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    }
                 ],
-                iceCandidatePoolSize: 10
+                iceCandidatePoolSize: 10,
+                iceTransportPolicy: 'all'
             });
             
             // 이벤트 핸들러 다시 설정
