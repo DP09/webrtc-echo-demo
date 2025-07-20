@@ -70,7 +70,13 @@
 
     <script>
         let pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun2.l.google.com:19302" },
+                { urls: "stun:stun.cloudflare.com:3478" }
+            ],
+            iceCandidatePoolSize: 10
         });
 
         let localStream;
@@ -130,9 +136,22 @@
                 updateConnectionInfo();
                 
                 if (pc.iceConnectionState === 'failed') {
-                    showStatus('❌ ICE 연결 실패', 'error');
+                    showStatus('❌ ICE 연결 실패 - NAT/방화벽 문제일 수 있습니다', 'error');
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
+                }
+            };
+
+            // ICE candidate 수집 디버깅
+            pc.onicecandidateerror = (event) => {
+                console.error('ICE candidate error:', event);
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log('ICE candidate:', event.candidate.candidate);
+                } else {
+                    console.log('ICE gathering complete');
                 }
             };
 
@@ -227,7 +246,13 @@
             
             // 새로운 PeerConnection 생성
             pc = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+                iceServers: [
+                    { urls: "stun:stun.l.google.com:19302" },
+                    { urls: "stun:stun1.l.google.com:19302" },
+                    { urls: "stun:stun2.l.google.com:19302" },
+                    { urls: "stun:stun.cloudflare.com:3478" }
+                ],
+                iceCandidatePoolSize: 10
             });
             
             // 이벤트 핸들러 다시 설정
