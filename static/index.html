@@ -69,34 +69,44 @@
     </div>
 
     <script>
-        let pc = new RTCPeerConnection({
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" },
-                { urls: "stun:stun.cloudflare.com:3478" },
-                // 무료 TURN 서버 추가
-                {
-                    urls: "turn:openrelay.metered.ca:80",
-                    username: "openrelayproject",
-                    credential: "openrelayproject"
-                },
-                {
-                    urls: "turn:openrelay.metered.ca:443",
-                    username: "openrelayproject", 
-                    credential: "openrelayproject"
-                },
-                {
-                    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                    username: "openrelayproject",
-                    credential: "openrelayproject"
-                }
-            ],
-            iceCandidatePoolSize: 10,
-            iceTransportPolicy: 'all',
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
-        });
+        let pc; // 동적으로 생성
+
+        async function createPeerConnection() {
+            try {
+                // 서버에서 최신 ICE 서버 정보 가져오기
+                const response = await fetch('/ice-servers');
+                const data = await response.json();
+                
+                console.log('🔥 Twilio ICE 서버 정보 받음:', data.iceServers);
+                
+                pc = new RTCPeerConnection({
+                    iceServers: data.iceServers,
+                    iceCandidatePoolSize: 10,
+                    iceTransportPolicy: 'all',
+                    bundlePolicy: 'max-bundle',
+                    rtcpMuxPolicy: 'require'
+                });
+                
+                setupPeerConnectionEvents();
+                return pc;
+                
+            } catch (error) {
+                console.error('ICE 서버 정보 가져오기 실패, 기본값 사용:', error);
+                
+                // 실패 시 기본 STUN만 사용
+                pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: "stun:stun.l.google.com:19302" },
+                        { urls: "stun:stun1.l.google.com:19302" }
+                    ],
+                    iceCandidatePoolSize: 10,
+                    iceTransportPolicy: 'all'
+                });
+                
+                setupPeerConnectionEvents();
+                return pc;
+            }
+        }
 
         let localStream;
         let startTime;
@@ -199,6 +209,12 @@
 
         async function start() {
             try {
+                // PeerConnection 동적 생성
+                if (!pc) {
+                    showStatus('🔗 Twilio TURN 서버 연결 중...');
+                    await createPeerConnection();
+                }
+
                 // 이미 연결 중이라면 중복 실행 방지
                 if (pc.connectionState === 'connecting' || pc.connectionState === 'connected') {
                     showStatus('⚠️ 이미 연결 중입니다', 'connecting');
@@ -258,7 +274,7 @@
             }
         }
 
-        function stop() {
+        async function stop() {
             console.log('Stopping connection...');
             
             if (localStream) {
@@ -273,36 +289,8 @@
                 pc.close();
             }
             
-            // 새로운 PeerConnection 생성
-            pc = new RTCPeerConnection({
-                iceServers: [
-                    { urls: "stun:stun.l.google.com:19302" },
-                    { urls: "stun:stun1.l.google.com:19302" },
-                    { urls: "stun:stun2.l.google.com:19302" },
-                    { urls: "stun:stun.cloudflare.com:3478" },
-                    // 무료 TURN 서버 추가
-                    {
-                        urls: "turn:openrelay.metered.ca:80",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    {
-                        urls: "turn:openrelay.metered.ca:443",
-                        username: "openrelayproject", 
-                        credential: "openrelayproject"
-                    },
-                    {
-                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    }
-                ],
-                iceCandidatePoolSize: 10,
-                iceTransportPolicy: 'all'
-            });
-            
-            // 이벤트 핸들러 다시 설정
-            setupPeerConnectionEvents();
+            // 새로운 PeerConnection 생성 (Twilio ICE 서버 포함)
+            await createPeerConnection();
             
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -317,9 +305,7 @@
             document.querySelectorAll('audio').forEach(audio => audio.remove());
         }
 
-        // 초기 이벤트 설정
-        setupPeerConnectionEvents();
-        
+        // 버튼 이벤트 설정
         startBtn.onclick = start;
         stopBtn.onclick = stop;
     </script>

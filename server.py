@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import time
+import requests
+import base64
 from typing import Set, Dict, Any
 
 from aiohttp import web
@@ -14,11 +16,67 @@ from aiortc.contrib.media import MediaBlackhole
 
 # WebRTC 미디어 포트 범위 설정 (Fly.io용)
 import socket
-import os
 
 # aiortc ICE 포트 범위 설정
 os.environ['AIORTC_ICE_PORT_MIN'] = '8000'
 os.environ['AIORTC_ICE_PORT_MAX'] = '8004'
+
+def get_twilio_ice_servers():
+    """Twilio API에서 ICE 서버 정보를 동적으로 가져옵니다."""
+    
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    
+    if not account_sid or not auth_token:
+        logging.warning("Twilio 계정 정보가 없어서 기본 STUN만 사용합니다.")
+        return [
+            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+        ]
+    
+    try:
+        # Twilio API 호출
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json"
+        credentials = f"{account_sid}:{auth_token}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        
+        response = requests.post(url, headers=headers, data={"Ttl": 3600})
+        response.raise_for_status()
+        
+        token_data = response.json()
+        ice_servers_data = token_data.get("ice_servers", [])
+        
+        # aiortc RTCIceServer 객체로 변환
+        ice_servers = []
+        for server in ice_servers_data:
+            urls = server.get("urls", [])
+            username = server.get("username")
+            credential = server.get("credential")
+            
+            if username and credential:
+                ice_servers.append(RTCIceServer(
+                    urls=urls,
+                    username=username,
+                    credential=credential
+                ))
+            else:
+                ice_servers.append(RTCIceServer(urls=urls))
+        
+        logging.info(f"✅ Twilio TURN 서버 {len(ice_servers)}개 로드 성공")
+        return ice_servers
+        
+    except Exception as e:
+        logging.error(f"❌ Twilio API 오류: {e}")
+        # 실패 시 기본 STUN 서버 사용
+        return [
+            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+        ]
 
 def setup_webrtc_ports():
     """WebRTC용 UDP 포트 확인"""
@@ -80,27 +138,7 @@ async def offer(request):
         offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
         pc = RTCPeerConnection(configuration=RTCConfiguration(
-            iceServers=[
-                RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-                RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
-                RTCIceServer(urls=["stun:stun2.l.google.com:19302"]),
-                RTCIceServer(urls=["stun:stun.cloudflare.com:3478"]),
-                RTCIceServer(
-                    urls=["turn:openrelay.metered.ca:80"],
-                    username="openrelayproject",
-                    credential="openrelayproject"
-                ),
-                RTCIceServer(
-                    urls=["turn:openrelay.metered.ca:443"],
-                    username="openrelayproject", 
-                    credential="openrelayproject"
-                ),
-                RTCIceServer(
-                    urls=["turn:openrelay.metered.ca:443?transport=tcp"],
-                    username="openrelayproject",
-                    credential="openrelayproject"
-                )
-            ]
+            iceServers=get_twilio_ice_servers()
         ))
         pcs.add(pc)
         pc_created_time = asyncio.get_event_loop().time()
@@ -222,6 +260,53 @@ async def health_check(request):
         })
     )
 
+async def get_ice_servers_endpoint(request):
+    """클라이언트용 ICE 서버 정보 제공"""
+    try:
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        
+        if not account_sid or not auth_token:
+            # Twilio 없으면 기본 STUN만
+            ice_servers = [
+                {"urls": "stun:stun.l.google.com:19302"},
+                {"urls": "stun:stun1.l.google.com:19302"},
+            ]
+        else:
+            # Twilio API 호출
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json"
+            credentials = f"{account_sid}:{auth_token}"
+            encoded_credentials = base64.b64encode(credentials.encode()).decode()
+            
+            headers = {
+                "Authorization": f"Basic {encoded_credentials}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            
+            response = requests.post(url, headers=headers, data={"Ttl": 3600})
+            response.raise_for_status()
+            
+            token_data = response.json()
+            ice_servers = token_data.get("ice_servers", [])
+        
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({"iceServers": ice_servers})
+        )
+        
+    except Exception as e:
+        logging.error(f"ICE 서버 정보 제공 오류: {e}")
+        # 에러 시 기본 STUN 제공
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({
+                "iceServers": [
+                    {"urls": "stun:stun.l.google.com:19302"},
+                    {"urls": "stun:stun1.l.google.com:19302"},
+                ]
+            })
+        )
+
 def create_app():
     """웹 애플리케이션 생성 및 설정"""
     app = web.Application()
@@ -241,6 +326,7 @@ def create_app():
     cors.add(app.router.add_post("/offer", offer))
     cors.add(app.router.add_get("/stats", get_stats))
     cors.add(app.router.add_get("/health", health_check))
+    cors.add(app.router.add_get("/ice-servers", get_ice_servers_endpoint))
     
     # 정적 파일 서비스
     app.router.add_static("/static", os.path.join(ROOT, "static"))
