@@ -14,16 +14,25 @@ from aiortc.contrib.media import MediaBlackhole
 
 # WebRTC 미디어 포트 범위 설정 (Fly.io용)
 import socket
+import os
+
+# aiortc ICE 포트 범위 설정
+os.environ['AIORTC_ICE_PORT_MIN'] = '8000'
+os.environ['AIORTC_ICE_PORT_MAX'] = '8004'
+
 def setup_webrtc_ports():
-    """WebRTC용 UDP 포트 바인딩"""
-    # Fly.io에서 설정한 UDP 포트들을 바인딩
+    """WebRTC용 UDP 포트 확인"""
+    logging.info(f"WebRTC ICE port range: {os.environ.get('AIORTC_ICE_PORT_MIN')}-{os.environ.get('AIORTC_ICE_PORT_MAX')}")
+    
+    # 포트 가용성 확인
     for port in range(8000, 8005):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.bind(('0.0.0.0', port))
-            logging.info(f"Bound UDP port {port} for WebRTC")
+            sock.close()  # 즉시 닫기
+            logging.info(f"UDP port {port} is available")
         except Exception as e:
-            logging.warning(f"Failed to bind port {port}: {e}")
+            logging.warning(f"UDP port {port} not available: {e}")
 
 ROOT = os.path.dirname(__file__)
 

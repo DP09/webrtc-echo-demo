@@ -93,7 +93,9 @@
                 }
             ],
             iceCandidatePoolSize: 10,
-            iceTransportPolicy: 'all'
+            iceTransportPolicy: 'all',
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         });
 
         let localStream;
@@ -166,7 +168,17 @@
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('ICE candidate:', event.candidate.candidate);
+                    const candidate = event.candidate.candidate;
+                    console.log('ICE candidate:', candidate);
+                    
+                    // TURN relay 후보 확인
+                    if (candidate.includes('typ relay')) {
+                        console.log('✅ TURN relay candidate found!');
+                    } else if (candidate.includes('typ srflx')) {
+                        console.log('📡 STUN reflexive candidate found');
+                    } else if (candidate.includes('typ host')) {
+                        console.log('🏠 Host candidate found');
+                    }
                 } else {
                     console.log('ICE gathering complete');
                 }
