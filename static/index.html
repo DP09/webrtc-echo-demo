@@ -188,16 +188,35 @@
                 if (pc.iceConnectionState === 'failed') {
                     console.error('❌ ICE 연결 완전 실패!');
                     console.error('사용된 ICE 서버들:', pc.getConfiguration().iceServers);
-                    showStatus('❌ 모든 TURN 서버 연결 실패', 'error');
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
+                    
+                    // ICE 재시작 시도 (thomas 방식)
+                    console.log('🔄 ICE 재시작 시도...');
+                    showStatus('🔄 ICE 재시작 중...', 'connecting');
+                    
+                    try {
+                        pc.restartIce();
+                        setTimeout(() => {
+                            if (pc.iceConnectionState === 'failed') {
+                                console.error('❌ ICE 재시작도 실패');
+                                showStatus('❌ 모든 TURN 서버 연결 실패', 'error');
+                                startBtn.disabled = false;
+                                stopBtn.disabled = true;
+                            }
+                        }, 5000);
+                    } catch (e) {
+                        console.error('ICE 재시작 오류:', e);
+                        showStatus('❌ ICE 재시작 실패', 'error');
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                    }
                 } else if (pc.iceConnectionState === 'disconnected') {
-                    console.warn('⚠️ ICE 연결 끊김');
+                    console.warn('⚠️ ICE 연결 끊김 - 자동 재연결 대기');
                     showStatus('🔄 연결 끊김, 재연결 시도 중...', 'connecting');
                 } else if (pc.iceConnectionState === 'checking') {
                     showStatus('🔍 TURN 서버 연결 확인 중...', 'connecting');
                 } else if (pc.iceConnectionState === 'connected') {
                     console.log('✅ ICE 연결 성공!');
+                    showStatus('🎉 ICE 연결 성공!', 'connected');
                 }
             };
 

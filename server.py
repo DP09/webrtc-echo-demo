@@ -111,7 +111,24 @@ def setup_webrtc_ports():
         bind_host = fly_global_ip
     except Exception as e:
         logging.warning(f"fly-global-services 주소 가져오기 실패: {e}")
-        bind_host = '0.0.0.0'
+        # Fly.io 환경 확인 (환경변수로 판단)
+        if os.environ.get('FLY_APP_NAME'):
+            # Fly.io 환경에서 직접 IP 시도
+            try:
+                import subprocess
+                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    ips = result.stdout.strip().split()
+                    fly_global_ip = ips[0] if ips else '0.0.0.0'
+                    logging.info(f"🔧 Fly.io 환경 감지, hostname IP 사용: {fly_global_ip}")
+                    os.environ['AIORTC_HOST'] = fly_global_ip
+                    bind_host = fly_global_ip
+                else:
+                    bind_host = '0.0.0.0'
+            except:
+                bind_host = '0.0.0.0'
+        else:
+            bind_host = '0.0.0.0'
     
     # 포트 가용성 확인 (확장된 범위)
     for port in range(8000, 8011):

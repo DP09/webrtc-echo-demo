@@ -22,6 +22,7 @@ primary_region = "nrt" # Tokyo region for low latency
 
 [env]
   PORT = "8080"
+  FLY_APP_NAME = "webrtc-echo-demo"
 
 # WebRTC용 더 넓은 UDP 포트 범위 (커뮤니티 권장)
 [[services]]
