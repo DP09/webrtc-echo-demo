@@ -17,9 +17,9 @@ from aiortc.contrib.media import MediaBlackhole
 # WebRTC 미디어 포트 범위 설정 (Fly.io용)
 import socket
 
-# aiortc ICE 포트 범위 설정
+# aiortc ICE 포트 범위 설정 (확장)
 os.environ['AIORTC_ICE_PORT_MIN'] = '8000'
-os.environ['AIORTC_ICE_PORT_MAX'] = '8004'
+os.environ['AIORTC_ICE_PORT_MAX'] = '8010'
 
 def get_twilio_ice_servers():
     """Twilio API에서 ICE 서버 정보를 동적으로 가져옵니다."""
@@ -99,18 +99,29 @@ def get_twilio_ice_servers():
         ]
 
 def setup_webrtc_ports():
-    """WebRTC용 UDP 포트 확인"""
+    """WebRTC용 UDP 포트 확인 및 Fly.io 바인딩 설정"""
     logging.info(f"WebRTC ICE port range: {os.environ.get('AIORTC_ICE_PORT_MIN')}-{os.environ.get('AIORTC_ICE_PORT_MAX')}")
     
-    # 포트 가용성 확인
-    for port in range(8000, 8005):
+    # Fly.io 환경에서 fly-global-services에 바인딩
+    try:
+        fly_global_ip = socket.gethostbyname('fly-global-services')
+        logging.info(f"🎯 Fly.io global services IP: {fly_global_ip}")
+        # aiortc가 특정 IP에 바인딩하도록 강제
+        os.environ['AIORTC_HOST'] = fly_global_ip
+        bind_host = fly_global_ip
+    except Exception as e:
+        logging.warning(f"fly-global-services 주소 가져오기 실패: {e}")
+        bind_host = '0.0.0.0'
+    
+    # 포트 가용성 확인 (확장된 범위)
+    for port in range(8000, 8011):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind(('0.0.0.0', port))
+            sock.bind((bind_host, port))
             sock.close()  # 즉시 닫기
-            logging.info(f"UDP port {port} is available")
+            logging.info(f"UDP port {port} is available on {bind_host}")
         except Exception as e:
-            logging.warning(f"UDP port {port} not available: {e}")
+            logging.warning(f"UDP port {port} not available on {bind_host}: {e}")
 
 ROOT = os.path.dirname(__file__)
 

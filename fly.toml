@@ -23,7 +23,7 @@ primary_region = "nrt" # Tokyo region for low latency
 [env]
   PORT = "8080"
 
-# WebRTC UDP 포트 범위 설정
+# WebRTC용 더 넓은 UDP 포트 범위 (커뮤니티 권장)
 [[services]]
   protocol = "udp"
   internal_port = 8000
@@ -57,4 +57,47 @@ primary_region = "nrt" # Tokyo region for low latency
   internal_port = 8004
 
   [[services.ports]]
-    port = 8004 
+    port = 8004
+
+# 추가 WebRTC 포트들
+[[services]]
+  protocol = "udp"
+  internal_port = 8005
+
+  [[services.ports]]
+    port = 8005
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8006
+
+  [[services.ports]]
+    port = 8006
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8007
+
+  [[services.ports]]
+    port = 8007
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8008
+
+  [[services.ports]]
+    port = 8008
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8009
+
+  [[services.ports]]
+    port = 8009
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8010
+
+  [[services.ports]]
+    port = 8010 
