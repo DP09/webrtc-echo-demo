@@ -51,20 +51,26 @@ def get_twilio_ice_servers():
         token_data = response.json()
         ice_servers_data = token_data.get("ice_servers", [])
         
-        # aiortc RTCIceServer 객체로 변환
+        # aiortc RTCIceServer 객체로 변환 (TCP 전용)
         ice_servers = []
         for server in ice_servers_data:
             urls = server.get("urls", [])
             username = server.get("username")
             credential = server.get("credential")
             
-            if username and credential:
+            # TCP TURN만 사용 (UDP 포트 제약 회피)
+            if isinstance(urls, list):
+                tcp_urls = [url for url in urls if 'transport=tcp' in url or ':443' in url]
+            else:
+                tcp_urls = [urls] if ('transport=tcp' in urls or ':443' in urls) else []
+            
+            if tcp_urls and username and credential:
                 ice_servers.append(RTCIceServer(
-                    urls=urls,
+                    urls=tcp_urls,
                     username=username,
                     credential=credential
                 ))
-            else:
+            elif not username:  # STUN 서버
                 ice_servers.append(RTCIceServer(urls=urls))
         
         logging.info(f"✅ Twilio TURN 서버 {len(ice_servers)}개 로드 성공")
@@ -72,10 +78,24 @@ def get_twilio_ice_servers():
         
     except Exception as e:
         logging.error(f"❌ Twilio API 오류: {e}")
-        # 실패 시 기본 STUN 서버 사용
+        # 실패 시 여러 TURN 서버 사용
         return [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+            RTCIceServer(
+                urls=["turn:openrelay.metered.ca:443?transport=tcp"],
+                username="openrelayproject",
+                credential="openrelayproject"
+            ),
+            RTCIceServer(
+                urls=["turn:relay.metered.ca:443?transport=tcp"],
+                username="bcc092b1b7f04dffbd7e",
+                credential="iWN9kEtxDXF6VYEJ"
+            ),
+            RTCIceServer(
+                urls=["turn:numb.viagenie.ca:443?transport=tcp"],
+                username="webrtc@live.com",
+                credential="muazkh"
+            )
         ]
 
 def setup_webrtc_ports():
