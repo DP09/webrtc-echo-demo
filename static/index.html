@@ -82,7 +82,7 @@
                 pc = new RTCPeerConnection({
                     iceServers: data.iceServers,
                     iceCandidatePoolSize: 10,
-                    iceTransportPolicy: 'all',
+                    iceTransportPolicy: 'all',  // 모든 연결 방식 허용
                     bundlePolicy: 'max-bundle',
                     rtcpMuxPolicy: 'require'
                 });
@@ -138,6 +138,12 @@
         }
 
         function setupPeerConnectionEvents() {
+            // pc가 존재하지 않으면 이벤트 설정하지 않음
+            if (!pc) {
+                console.error('PeerConnection이 생성되지 않았습니다.');
+                return;
+            }
+            
             // 연결 상태 모니터링
             pc.onconnectionstatechange = () => {
                 console.log('Connection state:', pc.connectionState);
@@ -165,9 +171,17 @@
                 updateConnectionInfo();
                 
                 if (pc.iceConnectionState === 'failed') {
-                    showStatus('❌ ICE 연결 실패 - NAT/방화벽 문제일 수 있습니다', 'error');
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
+                    console.log('ICE 연결 실패, 재시도 중...');
+                    showStatus('🔄 ICE 연결 실패, 재시도 중...', 'connecting');
+                    
+                    // ICE 재시작 시도
+                    setTimeout(() => {
+                        if (pc.iceConnectionState === 'failed') {
+                            pc.restartIce();
+                        }
+                    }, 2000);
+                } else if (pc.iceConnectionState === 'disconnected') {
+                    showStatus('🔄 연결 끊김, 재연결 시도 중...', 'connecting');
                 }
             };
 
@@ -290,6 +304,7 @@
             }
             
             // 새로운 PeerConnection 생성 (Twilio ICE 서버 포함)
+            pc = null;  // 기존 pc 초기화
             await createPeerConnection();
             
             startBtn.disabled = false;
@@ -305,7 +320,7 @@
             document.querySelectorAll('audio').forEach(audio => audio.remove());
         }
 
-        // 버튼 이벤트 설정
+        // 버튼 이벤트만 설정 (pc 이벤트는 createPeerConnection에서 설정)
         startBtn.onclick = start;
         stopBtn.onclick = stop;
     </script>
