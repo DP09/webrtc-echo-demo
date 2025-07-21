@@ -12,6 +12,19 @@ from aiohttp_cors import setup as cors_setup, ResourceOptions
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
 
+# WebRTC 미디어 포트 범위 설정 (Fly.io용)
+import socket
+def setup_webrtc_ports():
+    """WebRTC용 UDP 포트 바인딩"""
+    # Fly.io에서 설정한 UDP 포트들을 바인딩
+    for port in range(8000, 8005):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('0.0.0.0', port))
+            logging.info(f"Bound UDP port {port} for WebRTC")
+        except Exception as e:
+            logging.warning(f"Failed to bind port {port}: {e}")
+
 ROOT = os.path.dirname(__file__)
 
 # 전역 변수를 더 명확하게 타입 힌트와 함께
@@ -237,6 +250,9 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
+    
+    # WebRTC UDP 포트 설정 (Fly.io용)
+    setup_webrtc_ports()
     
     logging.info(f"Starting WebRTC Echo Server on port {port}")
     

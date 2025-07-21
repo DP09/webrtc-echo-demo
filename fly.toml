@@ -1,0 +1,60 @@
+app = "webrtc-echo-demo"
+primary_region = "nrt" # Tokyo region for low latency
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[http_service.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[env]
+  PORT = "8080"
+
+# WebRTC UDP 포트 범위 설정
+[[services]]
+  protocol = "udp"
+  internal_port = 8000
+
+  [[services.ports]]
+    port = 8000
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8001
+
+  [[services.ports]]
+    port = 8001
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8002
+
+  [[services.ports]]
+    port = 8002
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8003
+
+  [[services.ports]]
+    port = 8003
+
+[[services]]
+  protocol = "udp"
+  internal_port = 8004
+
+  [[services.ports]]
+    port = 8004 
