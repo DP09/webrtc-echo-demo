@@ -14,128 +14,44 @@ from aiohttp_cors import setup as cors_setup, ResourceOptions
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
 
-# 전역 ICE 서버 캐시 (서버-클라이언트 일관성 보장)
+# Twilio 및 Railway 환경 관련 코드 제거, 환경변수 기반 coturn 또는 무료 STUN만 제공
 _ice_servers_cache = None
 _cache_timestamp = 0
 _cache_ttl = 3600  # 1시간
 
 def get_ice_servers():
-    """Twilio API에서 ICE 서버 정보를 가져와서 서버-클라이언트 모두에서 사용"""
+    """환경변수 기반 coturn 또는 무료 STUN 서버만 제공 (Twilio 완전 제거)"""
     global _ice_servers_cache, _cache_timestamp
-    
-    # 캐시 확인
     current_time = time.time()
     if _ice_servers_cache and (current_time - _cache_timestamp) < _cache_ttl:
         return _ice_servers_cache
-    
-    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-    
-    if not account_sid or not auth_token:
-        logging.warning("Twilio 없이 자체 TURN 서버를 사용합니다.")
-        
-        # 자체 TURN 서버 주소 (환경변수로 설정 가능)
-        custom_turn = os.environ.get('CUSTOM_TURN_SERVER')
-        custom_turn_user = os.environ.get('CUSTOM_TURN_USER', 'webrtc')
-        custom_turn_pass = os.environ.get('CUSTOM_TURN_PASS', 'webrtc123')
-        
-        default_servers = [
-            {"urls": "stun:stun.l.google.com:19302"},
-            {"urls": "stun:stun1.l.google.com:19302"},
-        ]
-        
-        # 자체 TURN 서버가 있으면 추가
-        if custom_turn:
-            logging.info(f"✅ 자체 TURN 서버 사용: {custom_turn}")
-            default_servers.extend([
-                {
-                    "urls": f"turn:{custom_turn}:3478",
-                    "username": custom_turn_user,
-                    "credential": custom_turn_pass
-                },
-                {
-                    "urls": f"turns:{custom_turn}:5349",
-                    "username": custom_turn_user,
-                    "credential": custom_turn_pass
-                }
-            ])
-        else:
-            # 검증된 무료 TURN 서버들만 사용
-            logging.info("🔄 검증된 무료 TURN 서버 사용 (metered.ca Open Relay)")
-            default_servers.extend([
-                # STUN.STUNPROTOCOL.ORG (가장 안정적)
-                {"urls": "stun:stun.stunprotocol.org:3478"},
-                # Twilio의 무료 STUN (안정적)
-                {"urls": "stun:global.stun.twilio.com:3478"},
-                # metered.ca Open Relay Project (20GB 무료, 매우 안정적)
-                {
-                    "urls": "turn:openrelay.metered.ca:80",
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": "turn:openrelay.metered.ca:443",
-                    "username": "openrelayproject", 
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": "turn:openrelay.metered.ca:443?transport=tcp",
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                }
-            ])
-        
-        _ice_servers_cache = default_servers
-        _cache_timestamp = current_time
-        return default_servers
-    
-    try:
-        # Twilio API 호출
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json"
-        credentials = f"{account_sid}:{auth_token}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        
-        headers = {
-            "Authorization": f"Basic {encoded_credentials}",
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
-        
-        response = requests.post(url, headers=headers, data={"Ttl": _cache_ttl})
-        response.raise_for_status()
-        
-        token_data = response.json()
-        ice_servers = token_data.get("ice_servers", [])
-        
-        logging.info(f"✅ Twilio TURN 서버 {len(ice_servers)}개 로드 성공")
-        
-        # 캐시 업데이트
-        _ice_servers_cache = ice_servers
-        _cache_timestamp = current_time
-        
-        return ice_servers
-        
-    except Exception as e:
-        logging.error(f"❌ Twilio API 오류: {e}")
-        # 실패 시 자체 TURN 서버 또는 검증된 무료 서버 사용
-        fallback_servers = [
-            {"urls": "stun:stun.l.google.com:19302"},
-            {"urls": "stun:stun.stunprotocol.org:3478"},
-            {"urls": "stun:global.stun.twilio.com:3478"},
-            {
-                "urls": "turn:openrelay.metered.ca:80",
-                "username": "openrelayproject",
-                "credential": "openrelayproject"
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:443",
-                "username": "openrelayproject",
-                "credential": "openrelayproject"
-            }
-        ]
-        
-        _ice_servers_cache = fallback_servers
-        _cache_timestamp = current_time
-        return fallback_servers
+
+    # 환경변수 기반 coturn 정보
+    custom_turn = os.environ.get('CUSTOM_TURN_SERVER')
+    custom_turn_user = os.environ.get('CUSTOM_TURN_USER', 'webrtc')
+    custom_turn_pass = os.environ.get('CUSTOM_TURN_PASS', 'webrtc123')
+
+    default_servers = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:stun1.l.google.com:19302"},
+    ]
+
+    # coturn 서버가 환경변수로 지정된 경우 추가
+    if custom_turn:
+        # Railway 등 PaaS에서는 반드시 public IP로 지정해야 외부에서 접근 가능
+        # 예시: export CUSTOM_TURN_SERVER=xxx.xxx.xxx.xxx
+        default_servers.append({
+            "urls": f"turn:{custom_turn}:3478",
+            "username": custom_turn_user,
+            "credential": custom_turn_pass
+        })
+        logging.info(f"🔄 환경변수 기반 coturn TURN 서버 사용: {custom_turn}")
+    else:
+        logging.info("🔄 무료 STUN 서버만 사용 (TURN 미설정)")
+
+    _ice_servers_cache = default_servers
+    _cache_timestamp = current_time
+    return default_servers
 
 def convert_to_rtc_ice_servers(ice_servers_data):
     """클라이언트용 ICE 서버 데이터를 aiortc RTCIceServer 객체로 변환"""

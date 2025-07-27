@@ -105,7 +105,7 @@
             try {
                 showStatus('🔗 서버에서 ICE 서버 정보 가져오는 중...', 'connecting');
                 
-                // 서버에서 통일된 ICE 서버 정보 가져오기
+                // 서버에서 통일된 ICE 서버 정보 가져오기 (직접 하드코딩 금지)
                 const response = await fetch('/ice-servers');
                 if (!response.ok) {
                     throw new Error(`ICE 서버 정보 가져오기 실패: ${response.status}`);
@@ -212,16 +212,16 @@
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     const candidate = event.candidate.candidate;
-                    console.log('ICE candidate:', candidate);
-                    
-                    // TURN relay 후보 확인
+                    // candidate 타입 구분을 더 명확하게 표시
+                    let type = '-';
                     if (candidate.includes('typ relay')) {
-                        console.log('✅ TURN relay candidate found!');
+                        type = 'TURN relay';
                     } else if (candidate.includes('typ srflx')) {
-                        console.log('📡 STUN reflexive candidate found');
+                        type = 'STUN srflx';
                     } else if (candidate.includes('typ host')) {
-                        console.log('🏠 Host candidate found');
+                        type = 'Host';
                     }
+                    console.log(`[ICE] ${type} candidate:`, candidate);
                 } else {
                     console.log('ICE gathering complete');
                 }
