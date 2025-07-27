@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # WebRTC Echo 서버
+  webrtc-server:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - CUSTOM_TURN_SERVER=turn-server
+      - CUSTOM_TURN_USER=webrtc
+      - CUSTOM_TURN_PASS=webrtc123
+    depends_on:
+      - turn-server
+    networks:
+      - webrtc-network
+
+  # TURN 서버 (coturn)
+  turn-server:
+    image: coturn/coturn:latest
+    ports:
+      - "3478:3478/udp"    # TURN UDP
+      - "3478:3478/tcp"    # TURN TCP  
+      - "5349:5349/tcp"    # TURNS (TLS)
+      - "49152-65535:49152-65535/udp"  # TURN relay 포트 범위
+    environment:
+      - TURN_USERNAME=webrtc
+      - TURN_PASSWORD=webrtc123
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    networks:
+      - webrtc-network
+
+networks:
+  webrtc-network:
+    driver: bridge 

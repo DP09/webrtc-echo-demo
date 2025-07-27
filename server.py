@@ -32,21 +32,55 @@ def get_ice_servers():
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
     
     if not account_sid or not auth_token:
-        logging.warning("Twilio 계정 정보가 없어서 무료 TURN 서버들을 사용합니다.")
+        logging.warning("Twilio 없이 자체 TURN 서버를 사용합니다.")
+        
+        # 자체 TURN 서버 주소 (환경변수로 설정 가능)
+        custom_turn = os.environ.get('CUSTOM_TURN_SERVER')
+        custom_turn_user = os.environ.get('CUSTOM_TURN_USER', 'webrtc')
+        custom_turn_pass = os.environ.get('CUSTOM_TURN_PASS', 'webrtc123')
+        
         default_servers = [
             {"urls": "stun:stun.l.google.com:19302"},
             {"urls": "stun:stun1.l.google.com:19302"},
-            {
-                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
-                "username": "openrelayproject",
-                "credential": "openrelayproject"
-            },
-            {
-                "urls": "turn:relay.metered.ca:443?transport=tcp", 
-                "username": "bcc092b1b7f04dffbd7e",
-                "credential": "iWN9kEtxDXF6VYEJ"
-            }
         ]
+        
+        # 자체 TURN 서버가 있으면 추가
+        if custom_turn:
+            logging.info(f"✅ 자체 TURN 서버 사용: {custom_turn}")
+            default_servers.extend([
+                {
+                    "urls": f"turn:{custom_turn}:3478",
+                    "username": custom_turn_user,
+                    "credential": custom_turn_pass
+                },
+                {
+                    "urls": f"turns:{custom_turn}:5349",
+                    "username": custom_turn_user,
+                    "credential": custom_turn_pass
+                }
+            ])
+        else:
+            # 검증된 무료 TURN 서버들만 사용
+            logging.info("🔄 검증된 무료 TURN 서버 사용")
+            default_servers.extend([
+                # STUN.STUNPROTOCOL.ORG (가장 안정적)
+                {"urls": "stun:stun.stunprotocol.org:3478"},
+                # Twilio의 무료 STUN (안정적)
+                {"urls": "stun:global.stun.twilio.com:3478"},
+                # 검증된 무료 TURN 서버
+                {
+                    "urls": "turn:numb.viagenie.ca:3478",
+                    "username": "webrtc@live.com", 
+                    "credential": "muazkh"
+                },
+                # 백업 TURN 서버 (더 안정적인 것으로 교체)
+                {
+                    "urls": "turn:turn.bistri.com:80",
+                    "username": "homeo",
+                    "credential": "homeo"
+                }
+            ])
+        
         _ice_servers_cache = default_servers
         _cache_timestamp = current_time
         return default_servers
@@ -78,19 +112,15 @@ def get_ice_servers():
         
     except Exception as e:
         logging.error(f"❌ Twilio API 오류: {e}")
-        # 실패 시 무료 TURN 서버들 사용
+        # 실패 시 자체 TURN 서버 또는 검증된 무료 서버 사용
         fallback_servers = [
             {"urls": "stun:stun.l.google.com:19302"},
-            {"urls": "stun:stun1.l.google.com:19302"},
+            {"urls": "stun:stun.stunprotocol.org:3478"},
+            {"urls": "stun:global.stun.twilio.com:3478"},
             {
-                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
-                "username": "openrelayproject", 
-                "credential": "openrelayproject"
-            },
-            {
-                "urls": "turn:relay.metered.ca:443?transport=tcp",
-                "username": "bcc092b1b7f04dffbd7e",
-                "credential": "iWN9kEtxDXF6VYEJ"
+                "urls": "turn:numb.viagenie.ca:3478",
+                "username": "webrtc@live.com",
+                "credential": "muazkh"
             }
         ]
         
@@ -334,8 +364,42 @@ async def get_ice_servers_endpoint(request):
             })
         )
 
+async def refresh_ice_servers(request):
+    """ICE 서버 캐시 강제 새로고침"""
+    global _ice_servers_cache, _cache_timestamp
+    
+    try:
+        # 캐시 초기화
+        _ice_servers_cache = None
+        _cache_timestamp = 0
+        
+        # 새로 가져오기
+        ice_servers = get_ice_servers()
+        
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({
+                "status": "refreshed",
+                "iceServers": ice_servers,
+                "message": "ICE servers cache refreshed successfully"
+            })
+        )
+        
+    except Exception as e:
+        logging.error(f"ICE 서버 캐시 새로고침 오류: {e}")
+        return web.Response(
+            status=500,
+            content_type="application/json",
+            text=json.dumps({"error": str(e)})
+        )
+
 def create_app():
     """웹 애플리케이션 생성 및 설정"""
+    # 서버 시작 시 ICE 서버 캐시 초기화
+    global _ice_servers_cache, _cache_timestamp
+    _ice_servers_cache = None
+    _cache_timestamp = 0
+    
     app = web.Application()
     
     # CORS 설정
@@ -354,6 +418,7 @@ def create_app():
     cors.add(app.router.add_get("/stats", get_stats))
     cors.add(app.router.add_get("/health", health_check))
     cors.add(app.router.add_get("/ice-servers", get_ice_servers_endpoint))
+    cors.add(app.router.add_post("/refresh-ice", refresh_ice_servers))  # 캐시 새로고침 엔드포인트
     
     # 정적 파일 서비스
     app.router.add_static("/static", os.path.join(ROOT, "static"))
