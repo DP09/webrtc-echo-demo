@@ -40,5 +40,10 @@ RUN chmod +x /app/start.sh
 # 포트 노출
 EXPOSE 8080
 
+# 환경변수 설정 (빈 값으로 초기화, Railway에서 주입 시 덮어씀)
+ENV CUSTOM_TURN_SERVER=""
+ENV CUSTOM_TURN_USER=""
+ENV CUSTOM_TURN_PASS=""
+
 # 통합 시작
 CMD ["/app/start.sh"] 
