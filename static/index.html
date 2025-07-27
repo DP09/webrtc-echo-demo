@@ -69,60 +69,7 @@
     </div>
 
     <script>
-        let pc; // 동적으로 생성
-
-        async function createPeerConnection() {
-            try {
-                // 서버에서 최신 ICE 서버 정보 가져오기
-                const response = await fetch('/ice-servers');
-                const data = await response.json();
-                
-                // 모든 ICE 서버 사용 (필터링 해제)
-                console.log('🔥 받은 ICE 서버 (필터링 없음):', data.iceServers);
-                
-                pc = new RTCPeerConnection({
-                    iceServers: data.iceServers,
-                    iceCandidatePoolSize: 10,  // TURN 연결을 위해 증가
-                    iceTransportPolicy: 'all',  // 모든 연결 방식 허용
-                    bundlePolicy: 'max-bundle',
-                    rtcpMuxPolicy: 'require'
-                });
-                
-                setupPeerConnectionEvents();
-                return pc;
-                
-            } catch (error) {
-                console.error('ICE 서버 정보 가져오기 실패, 기본값 사용:', error);
-                
-                // 실패 시 여러 TURN 서버 시도
-                pc = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: "stun:stun.l.google.com:19302" },
-                        {
-                            urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                            username: "openrelayproject",
-                            credential: "openrelayproject"
-                        },
-                        {
-                            urls: "turn:relay.metered.ca:443?transport=tcp",
-                            username: "bcc092b1b7f04dffbd7e",
-                            credential: "iWN9kEtxDXF6VYEJ"
-                        },
-                        {
-                            urls: "turn:numb.viagenie.ca:443?transport=tcp",
-                            username: "webrtc@live.com",
-                            credential: "muazkh"
-                        }
-                    ],
-                    iceCandidatePoolSize: 10,
-                    iceTransportPolicy: 'all'  // 모든 연결 방식 허용
-                });
-                
-                setupPeerConnectionEvents();
-                return pc;
-            }
-        }
-
+        let pc = null;
         let localStream;
         let startTime;
         let connectTime;
@@ -147,13 +94,52 @@
         }
 
         function updateConnectionInfo() {
-            connectionStateEl.textContent = `상태: ${pc.connectionState}`;
-            iceStateEl.textContent = `ICE 상태: ${pc.iceConnectionState}`;
-            connectionInfoEl.style.display = 'block';
+            if (pc) {
+                connectionStateEl.textContent = `상태: ${pc.connectionState}`;
+                iceStateEl.textContent = `ICE 상태: ${pc.iceConnectionState}`;
+                connectionInfoEl.style.display = 'block';
+            }
+        }
+
+        async function createPeerConnection() {
+            try {
+                showStatus('🔗 서버에서 ICE 서버 정보 가져오는 중...', 'connecting');
+                
+                // 서버에서 통일된 ICE 서버 정보 가져오기
+                const response = await fetch('/ice-servers');
+                if (!response.ok) {
+                    throw new Error(`ICE 서버 정보 가져오기 실패: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('✅ 서버에서 받은 ICE 서버:', data.iceServers);
+                console.log('📊 캐시 정보:', data.cacheInfo);
+                
+                if (data.error) {
+                    console.warn('⚠️ 서버 경고:', data.error);
+                }
+                
+                // RTCPeerConnection 생성 (서버와 동일한 ICE 서버 사용)
+                pc = new RTCPeerConnection({
+                    iceServers: data.iceServers,
+                    iceCandidatePoolSize: 10,
+                    iceTransportPolicy: 'all',  // 모든 연결 방식 허용
+                    bundlePolicy: 'max-bundle',
+                    rtcpMuxPolicy: 'require'
+                });
+                
+                setupPeerConnectionEvents();
+                
+                showStatus('✅ PeerConnection 생성 완료', 'connecting');
+                return pc;
+                
+            } catch (error) {
+                console.error('❌ PeerConnection 생성 실패:', error);
+                throw new Error(`PeerConnection 생성 실패: ${error.message}`);
+            }
         }
 
         function setupPeerConnectionEvents() {
-            // pc가 존재하지 않으면 이벤트 설정하지 않음
             if (!pc) {
                 console.error('PeerConnection이 생성되지 않았습니다.');
                 return;
@@ -187,9 +173,8 @@
                 
                 if (pc.iceConnectionState === 'failed') {
                     console.error('❌ ICE 연결 완전 실패!');
-                    console.error('사용된 ICE 서버들:', pc.getConfiguration().iceServers);
                     
-                    // ICE 재시작 시도 (thomas 방식)
+                    // ICE 재시작 시도
                     console.log('🔄 ICE 재시작 시도...');
                     showStatus('🔄 ICE 재시작 중...', 'connecting');
                     
@@ -216,7 +201,6 @@
                     showStatus('🔍 TURN 서버 연결 확인 중...', 'connecting');
                 } else if (pc.iceConnectionState === 'connected') {
                     console.log('✅ ICE 연결 성공!');
-                    showStatus('🎉 ICE 연결 성공!', 'connected');
                 }
             };
 
@@ -258,14 +242,8 @@
 
         async function start() {
             try {
-                // PeerConnection 동적 생성
-                if (!pc) {
-                    showStatus('🔗 Twilio TURN 서버 연결 중...');
-                    await createPeerConnection();
-                }
-
-                // 이미 연결 중이라면 중복 실행 방지
-                if (pc.connectionState === 'connecting' || pc.connectionState === 'connected') {
+                // 중복 실행 방지
+                if (pc && (pc.connectionState === 'connecting' || pc.connectionState === 'connected')) {
                     showStatus('⚠️ 이미 연결 중입니다', 'connecting');
                     return;
                 }
@@ -275,6 +253,9 @@
                 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                
+                // PeerConnection 생성 (항상 새로 생성)
+                await createPeerConnection();
                 
                 showStatus('🎤 마이크 권한 요청 중...');
                 
@@ -336,11 +317,8 @@
             
             if (pc) {
                 pc.close();
+                pc = null;
             }
-            
-            // 새로운 PeerConnection 생성 (Twilio ICE 서버 포함)
-            pc = null;  // 기존 pc 초기화
-            await createPeerConnection();
             
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -355,9 +333,20 @@
             document.querySelectorAll('audio').forEach(audio => audio.remove());
         }
 
-        // 버튼 이벤트만 설정 (pc 이벤트는 createPeerConnection에서 설정)
+        // 이벤트 리스너 등록
         startBtn.onclick = start;
         stopBtn.onclick = stop;
+
+        // 페이지 로드 시 서버 상태 확인
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('/health');
+                const health = await response.json();
+                console.log('✅ 서버 상태:', health);
+            } catch (error) {
+                console.warn('서버 상태 확인 실패:', error);
+            }
+        });
     </script>
 </body>
 </html>

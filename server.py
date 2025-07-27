@@ -14,25 +14,42 @@ from aiohttp_cors import setup as cors_setup, ResourceOptions
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
 
-# WebRTC 미디어 포트 범위 설정 (Fly.io용)
-import socket
+# 전역 ICE 서버 캐시 (서버-클라이언트 일관성 보장)
+_ice_servers_cache = None
+_cache_timestamp = 0
+_cache_ttl = 3600  # 1시간
 
-# aiortc ICE 포트 범위 설정 (확장)
-os.environ['AIORTC_ICE_PORT_MIN'] = '8000'
-os.environ['AIORTC_ICE_PORT_MAX'] = '8010'
-
-def get_twilio_ice_servers():
-    """Twilio API에서 ICE 서버 정보를 동적으로 가져옵니다."""
+def get_ice_servers():
+    """Twilio API에서 ICE 서버 정보를 가져와서 서버-클라이언트 모두에서 사용"""
+    global _ice_servers_cache, _cache_timestamp
+    
+    # 캐시 확인
+    current_time = time.time()
+    if _ice_servers_cache and (current_time - _cache_timestamp) < _cache_ttl:
+        return _ice_servers_cache
     
     account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
     
     if not account_sid or not auth_token:
-        logging.warning("Twilio 계정 정보가 없어서 기본 STUN만 사용합니다.")
-        return [
-            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+        logging.warning("Twilio 계정 정보가 없어서 무료 TURN 서버들을 사용합니다.")
+        default_servers = [
+            {"urls": "stun:stun.l.google.com:19302"},
+            {"urls": "stun:stun1.l.google.com:19302"},
+            {
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
+            },
+            {
+                "urls": "turn:relay.metered.ca:443?transport=tcp", 
+                "username": "bcc092b1b7f04dffbd7e",
+                "credential": "iWN9kEtxDXF6VYEJ"
+            }
         ]
+        _ice_servers_cache = default_servers
+        _cache_timestamp = current_time
+        return default_servers
     
     try:
         # Twilio API 호출
@@ -45,100 +62,70 @@ def get_twilio_ice_servers():
             "Content-Type": "application/x-www-form-urlencoded"
         }
         
-        response = requests.post(url, headers=headers, data={"Ttl": 3600})
+        response = requests.post(url, headers=headers, data={"Ttl": _cache_ttl})
         response.raise_for_status()
         
         token_data = response.json()
-        ice_servers_data = token_data.get("ice_servers", [])
-        
-        # aiortc RTCIceServer 객체로 변환 (TCP 전용)
-        ice_servers = []
-        for server in ice_servers_data:
-            urls = server.get("urls", [])
-            username = server.get("username")
-            credential = server.get("credential")
-            
-            # TCP TURN만 사용 (UDP 포트 제약 회피)
-            if isinstance(urls, list):
-                tcp_urls = [url for url in urls if 'transport=tcp' in url or ':443' in url]
-            else:
-                tcp_urls = [urls] if ('transport=tcp' in urls or ':443' in urls) else []
-            
-            if tcp_urls and username and credential:
-                ice_servers.append(RTCIceServer(
-                    urls=tcp_urls,
-                    username=username,
-                    credential=credential
-                ))
-            elif not username:  # STUN 서버
-                ice_servers.append(RTCIceServer(urls=urls))
+        ice_servers = token_data.get("ice_servers", [])
         
         logging.info(f"✅ Twilio TURN 서버 {len(ice_servers)}개 로드 성공")
+        
+        # 캐시 업데이트
+        _ice_servers_cache = ice_servers
+        _cache_timestamp = current_time
+        
         return ice_servers
         
     except Exception as e:
         logging.error(f"❌ Twilio API 오류: {e}")
-        # 실패 시 여러 TURN 서버 사용
-        return [
-            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-            RTCIceServer(
-                urls=["turn:openrelay.metered.ca:443?transport=tcp"],
-                username="openrelayproject",
-                credential="openrelayproject"
-            ),
-            RTCIceServer(
-                urls=["turn:relay.metered.ca:443?transport=tcp"],
-                username="bcc092b1b7f04dffbd7e",
-                credential="iWN9kEtxDXF6VYEJ"
-            ),
-            RTCIceServer(
-                urls=["turn:numb.viagenie.ca:443?transport=tcp"],
-                username="webrtc@live.com",
-                credential="muazkh"
-            )
+        # 실패 시 무료 TURN 서버들 사용
+        fallback_servers = [
+            {"urls": "stun:stun.l.google.com:19302"},
+            {"urls": "stun:stun1.l.google.com:19302"},
+            {
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                "username": "openrelayproject", 
+                "credential": "openrelayproject"
+            },
+            {
+                "urls": "turn:relay.metered.ca:443?transport=tcp",
+                "username": "bcc092b1b7f04dffbd7e",
+                "credential": "iWN9kEtxDXF6VYEJ"
+            }
         ]
+        
+        _ice_servers_cache = fallback_servers
+        _cache_timestamp = current_time
+        return fallback_servers
 
-def setup_webrtc_ports():
-    """WebRTC용 UDP 포트 확인 및 Fly.io 바인딩 설정"""
-    logging.info(f"WebRTC ICE port range: {os.environ.get('AIORTC_ICE_PORT_MIN')}-{os.environ.get('AIORTC_ICE_PORT_MAX')}")
+def convert_to_rtc_ice_servers(ice_servers_data):
+    """클라이언트용 ICE 서버 데이터를 aiortc RTCIceServer 객체로 변환"""
+    rtc_ice_servers = []
     
-    # Fly.io 환경에서 fly-global-services에 바인딩
-    try:
-        fly_global_ip = socket.gethostbyname('fly-global-services')
-        logging.info(f"🎯 Fly.io global services IP: {fly_global_ip}")
-        # aiortc가 특정 IP에 바인딩하도록 강제
-        os.environ['AIORTC_HOST'] = fly_global_ip
-        bind_host = fly_global_ip
-    except Exception as e:
-        logging.warning(f"fly-global-services 주소 가져오기 실패: {e}")
-        # Fly.io 환경 확인 (환경변수로 판단)
-        if os.environ.get('FLY_APP_NAME'):
-            # Fly.io 환경에서 직접 IP 시도
-            try:
-                import subprocess
-                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    ips = result.stdout.strip().split()
-                    fly_global_ip = ips[0] if ips else '0.0.0.0'
-                    logging.info(f"🔧 Fly.io 환경 감지, hostname IP 사용: {fly_global_ip}")
-                    os.environ['AIORTC_HOST'] = fly_global_ip
-                    bind_host = fly_global_ip
-                else:
-                    bind_host = '0.0.0.0'
-            except:
-                bind_host = '0.0.0.0'
+    for server in ice_servers_data:
+        urls = server.get("urls", [])
+        username = server.get("username")
+        credential = server.get("credential")
+        
+        if username and credential:
+            # TURN 서버 (TCP 우선 사용)
+            if isinstance(urls, list):
+                tcp_urls = [url for url in urls if 'transport=tcp' in url or ':443' in url]
+                if not tcp_urls:
+                    tcp_urls = urls  # TCP 전용이 없으면 모든 URL 사용
+            else:
+                tcp_urls = [urls]
+            
+            rtc_ice_servers.append(RTCIceServer(
+                urls=tcp_urls,
+                username=username,
+                credential=credential
+            ))
         else:
-            bind_host = '0.0.0.0'
+            # STUN 서버
+            rtc_ice_servers.append(RTCIceServer(urls=urls))
     
-    # 포트 가용성 확인 (확장된 범위)
-    for port in range(8000, 8011):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind((bind_host, port))
-            sock.close()  # 즉시 닫기
-            logging.info(f"UDP port {port} is available on {bind_host}")
-        except Exception as e:
-            logging.warning(f"UDP port {port} not available on {bind_host}: {e}")
+    return rtc_ice_servers
 
 ROOT = os.path.dirname(__file__)
 
@@ -185,8 +172,12 @@ async def offer(request):
         
         offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
+        # 통일된 ICE 서버 설정 사용
+        ice_servers_data = get_ice_servers()
+        rtc_ice_servers = convert_to_rtc_ice_servers(ice_servers_data)
+        
         pc = RTCPeerConnection(configuration=RTCConfiguration(
-            iceServers=get_twilio_ice_servers()
+            iceServers=rtc_ice_servers
         ))
         pcs.add(pc)
         pc_created_time = asyncio.get_event_loop().time()
@@ -194,7 +185,7 @@ async def offer(request):
         # 통계 업데이트
         server_stats["total_connections"] += 1
         
-        logging.info(f"Created PeerConnection. Total connections: {len(pcs)}")
+        logging.info(f"Created PeerConnection with {len(rtc_ice_servers)} ICE servers. Total connections: {len(pcs)}")
 
         @pc.on("track")
         def on_track(track):
@@ -289,6 +280,10 @@ async def get_stats(request):
         },
         "performance": {
             "connections_per_minute": (server_stats["total_connections"] / (uptime / 60)) if uptime > 60 else 0
+        },
+        "ice_servers_info": {
+            "cache_age_seconds": time.time() - _cache_timestamp if _cache_timestamp else 0,
+            "total_ice_servers": len(_ice_servers_cache) if _ice_servers_cache else 0
         }
     }
     
@@ -298,60 +293,44 @@ async def get_stats(request):
     )
 
 async def health_check(request):
-    """헬스 체크 엔드포인트"""
+    """헬스 체크 엔드포인트 (Railway용)"""
     return web.Response(
         content_type="application/json",
         text=json.dumps({
             "status": "healthy",
             "connections": len(pcs),
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "platform": "Railway"
         })
     )
 
 async def get_ice_servers_endpoint(request):
-    """클라이언트용 ICE 서버 정보 제공"""
+    """클라이언트용 ICE 서버 정보 제공 (서버와 동일한 설정)"""
     try:
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        
-        if not account_sid or not auth_token:
-            # Twilio 없으면 기본 STUN만
-            ice_servers = [
-                {"urls": "stun:stun.l.google.com:19302"},
-                {"urls": "stun:stun1.l.google.com:19302"},
-            ]
-        else:
-            # Twilio API 호출
-            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json"
-            credentials = f"{account_sid}:{auth_token}"
-            encoded_credentials = base64.b64encode(credentials.encode()).decode()
-            
-            headers = {
-                "Authorization": f"Basic {encoded_credentials}",
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-            
-            response = requests.post(url, headers=headers, data={"Ttl": 3600})
-            response.raise_for_status()
-            
-            token_data = response.json()
-            ice_servers = token_data.get("ice_servers", [])
+        ice_servers = get_ice_servers()
         
         return web.Response(
             content_type="application/json",
-            text=json.dumps({"iceServers": ice_servers})
+            text=json.dumps({
+                "iceServers": ice_servers,
+                "cacheInfo": {
+                    "age_seconds": time.time() - _cache_timestamp if _cache_timestamp else 0,
+                    "ttl_seconds": _cache_ttl
+                }
+            })
         )
         
     except Exception as e:
         logging.error(f"ICE 서버 정보 제공 오류: {e}")
-        # 에러 시 기본 STUN 제공
+        # 에러 시 기본 STUN만 제공
         return web.Response(
             content_type="application/json",
             text=json.dumps({
                 "iceServers": [
                     {"urls": "stun:stun.l.google.com:19302"},
                     {"urls": "stun:stun1.l.google.com:19302"},
-                ]
+                ],
+                "error": "Failed to get Twilio servers, using fallback"
             })
         )
 
@@ -385,7 +364,7 @@ def create_app():
     return app
 
 if __name__ == "__main__":
-    # 환경변수에서 포트 읽기 (Railway, Heroku 등에서 필요)
+    # Railway 환경변수에서 포트 읽기
     port = int(os.environ.get("PORT", 8080))
     
     # 로깅 설정
@@ -394,10 +373,8 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # WebRTC UDP 포트 설정 (Fly.io용)
-    setup_webrtc_ports()
-    
-    logging.info(f"Starting WebRTC Echo Server on port {port}")
+    logging.info(f"🚀 Starting WebRTC Echo Server on Railway (port {port})")
+    logging.info(f"🔧 Twilio TURN: {'✅ Configured' if os.environ.get('TWILIO_ACCOUNT_SID') else '❌ Not configured'}")
     
     app = create_app()
     web.run_app(app, host="0.0.0.0", port=port)
