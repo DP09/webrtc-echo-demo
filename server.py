@@ -61,23 +61,27 @@ def get_ice_servers():
             ])
         else:
             # 검증된 무료 TURN 서버들만 사용
-            logging.info("🔄 검증된 무료 TURN 서버 사용")
+            logging.info("🔄 검증된 무료 TURN 서버 사용 (metered.ca Open Relay)")
             default_servers.extend([
                 # STUN.STUNPROTOCOL.ORG (가장 안정적)
                 {"urls": "stun:stun.stunprotocol.org:3478"},
                 # Twilio의 무료 STUN (안정적)
                 {"urls": "stun:global.stun.twilio.com:3478"},
-                # 검증된 무료 TURN 서버
+                # metered.ca Open Relay Project (20GB 무료, 매우 안정적)
                 {
-                    "urls": "turn:numb.viagenie.ca:3478",
-                    "username": "webrtc@live.com", 
-                    "credential": "muazkh"
+                    "urls": "turn:openrelay.metered.ca:80",
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
                 },
-                # 백업 TURN 서버 (더 안정적인 것으로 교체)
                 {
-                    "urls": "turn:turn.bistri.com:80",
-                    "username": "homeo",
-                    "credential": "homeo"
+                    "urls": "turn:openrelay.metered.ca:443",
+                    "username": "openrelayproject", 
+                    "credential": "openrelayproject"
+                },
+                {
+                    "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
                 }
             ])
         
@@ -118,9 +122,14 @@ def get_ice_servers():
             {"urls": "stun:stun.stunprotocol.org:3478"},
             {"urls": "stun:global.stun.twilio.com:3478"},
             {
-                "urls": "turn:numb.viagenie.ca:3478",
-                "username": "webrtc@live.com",
-                "credential": "muazkh"
+                "urls": "turn:openrelay.metered.ca:80",
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443",
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
             }
         ]
         
