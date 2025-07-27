@@ -363,6 +363,11 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
+    # 서버 시작 시 환경변수(CUSTOM_TURN_SERVER, CUSTOM_TURN_USER, CUSTOM_TURN_PASS) 값을 명확하게 출력하도록 상단에 print문을 추가합니다. 이로써 Railway에서 환경변수가 실제로 잘 전달되는지 로그로 확인할 수 있습니다.
+    print("DEBUG: CUSTOM_TURN_SERVER =", os.environ.get("CUSTOM_TURN_SERVER"))
+    print("DEBUG: CUSTOM_TURN_USER =", os.environ.get("CUSTOM_TURN_USER"))
+    print("DEBUG: CUSTOM_TURN_PASS =", os.environ.get("CUSTOM_TURN_PASS"))
+
     logging.info(f"🚀 Starting WebRTC Echo Server on Railway (port {port})")
     logging.info(f"🔧 Twilio TURN: {'✅ Configured' if os.environ.get('TWILIO_ACCOUNT_SID') else '❌ Not configured'}")
     
