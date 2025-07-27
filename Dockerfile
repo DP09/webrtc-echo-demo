@@ -33,9 +33,6 @@ RUN echo '#!/bin/bash\n\
 # TURN 서버 백그라운드 시작\n\
 turnserver -c /etc/turnserver.conf &\n\
 # WebRTC 서버 시작\n\
-export CUSTOM_TURN_SERVER="127.0.0.1"\n\
-export CUSTOM_TURN_USER="webrtc"\n\
-export CUSTOM_TURN_PASS="webrtc123"\n\
 python server.py' > /app/start.sh
 
 RUN chmod +x /app/start.sh
