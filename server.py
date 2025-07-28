@@ -161,8 +161,7 @@ async def offer(request):
         rtc_ice_servers = convert_to_rtc_ice_servers(ice_servers_data)
         
         pc = RTCPeerConnection(configuration=RTCConfiguration(
-            iceServers=rtc_ice_servers,
-            iceTransportPolicy="relay"  # TURN만 사용 (PaaS 환경 최적화)
+            iceServers=rtc_ice_servers
         ))
         pcs.add(pc)
         pc_created_time = asyncio.get_event_loop().time()
