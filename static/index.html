@@ -137,11 +137,11 @@
                     console.warn('⚠️ 서버 경고:', data.error);
                 }
                 
-                // RTCPeerConnection 생성 (서버와 동일한 ICE 서버 사용)
+                // RTCPeerConnection 생성 (TURN 우선 설정)
                 pc = new RTCPeerConnection({
                     iceServers: data.iceServers,
                     iceCandidatePoolSize: 10,
-                    iceTransportPolicy: 'all',  // 모든 연결 방식 허용
+                    iceTransportPolicy: 'relay',  // TURN만 사용 (PaaS 환경에서 필수)
                     bundlePolicy: 'max-bundle',
                     rtcpMuxPolicy: 'require'
                 });
