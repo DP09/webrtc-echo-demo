@@ -144,11 +144,20 @@
                 
                 let iceConfig;
                 if (turnOnlyServers.length > 0) {
-                    // Twilio TURN 서버가 있을 때 - TURN만 사용
+                    // Twilio TURN 서버가 있을 때 - TCP 우선 + relay 정책
                     console.log('🎯 TURN 전용 서버 사용:', turnOnlyServers);
+                    
+                    // TCP TURN 서버 우선 정렬 (Railway에서 더 안정적)
+                    const sortedTurnServers = turnOnlyServers.sort((a, b) => {
+                        if (a.urls.includes('transport=tcp')) return -1;
+                        if (b.urls.includes('transport=tcp')) return 1;
+                        return 0;
+                    });
+                    
                     iceConfig = {
-                        iceServers: turnOnlyServers,
-                        iceTransportPolicy: 'relay'  // TURN만 사용
+                        iceServers: sortedTurnServers,
+                        iceTransportPolicy: 'all',  // relay에서 all로 변경 (더 유연하게)
+                        iceCandidatePoolSize: 20     // 더 많은 candidate 생성
                     };
                 } else {
                     // TURN 서버가 없을 때 - 모든 서버 사용 (로컬/개발용)
@@ -159,13 +168,15 @@
                     };
                 }
                 
-                // RTCPeerConnection 생성
+                // RTCPeerConnection 생성 (Railway 최적화)
                 pc = new RTCPeerConnection({
                     ...iceConfig,
-                    iceCandidatePoolSize: 10,
                     bundlePolicy: 'max-bundle',
                     rtcpMuxPolicy: 'require'
                 });
+                
+                // Railway 환경에서 연결 안정성 향상
+                pc.iceGatheringState === 'new' && console.log('🔄 ICE gathering 시작...');
                 
                 setupPeerConnectionEvents();
                 
@@ -246,6 +257,7 @@
                     }, 10000);
                 } else if (pc.iceConnectionState === 'checking') {
                     showStatus('🔍 TURN 서버 연결 확인 중...', 'connecting');
+                    console.log('⏰ ICE checking - 최대 30초 대기...');
                 } else if (pc.iceConnectionState === 'connected') {
                     console.log('✅ ICE 연결 성공!');
                 }
