@@ -14,18 +14,47 @@ from aiohttp_cors import setup as cors_setup, ResourceOptions
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
 
-# Twilio 및 Railway 환경 관련 코드 제거, 환경변수 기반 coturn 또는 무료 STUN만 제공
+# Twilio SDK 추가
+from twilio.rest import Client
+
+# Twilio 및 Railway 환경 관련 코드 - Twilio ICE 서버 사용으로 변경
 _ice_servers_cache = None
 _cache_timestamp = 0
 _cache_ttl = 3600  # 1시간
 
 def get_ice_servers():
-    """환경변수 기반 coturn 또는 무료 STUN 서버만 제공 (Twilio 완전 제거)"""
+    """Twilio ICE 서버 또는 환경변수 기반 coturn/무료 STUN 서버 제공"""
     global _ice_servers_cache, _cache_timestamp
     current_time = time.time()
     if _ice_servers_cache and (current_time - _cache_timestamp) < _cache_ttl:
         return _ice_servers_cache
 
+    # Twilio ICE 서버 시도
+    twilio_account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    twilio_auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    
+    if twilio_account_sid and twilio_auth_token:
+        try:
+            client = Client(twilio_account_sid, twilio_auth_token)
+            token = client.tokens.create()
+            
+            ice_servers = []
+            for ice_server in token.ice_servers:
+                ice_servers.append({
+                    "urls": ice_server["urls"],
+                    "username": ice_server.get("username"),
+                    "credential": ice_server.get("credential")
+                })
+            
+            logging.info(f"🔄 Twilio ICE 서버 사용: {len(ice_servers)}개 서버")
+            _ice_servers_cache = ice_servers
+            _cache_timestamp = current_time
+            return ice_servers
+            
+        except Exception as e:
+            logging.warning(f"⚠️ Twilio ICE 서버 가져오기 실패: {e}")
+    
+    # Twilio 실패 시 기존 로직 사용
     # 환경변수 기반 coturn 정보
     custom_turn = os.environ.get('CUSTOM_TURN_SERVER')
     custom_turn_user = os.environ.get('CUSTOM_TURN_USER', 'webrtc')
@@ -363,13 +392,16 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # 서버 시작 시 환경변수(CUSTOM_TURN_SERVER, CUSTOM_TURN_USER, CUSTOM_TURN_PASS) 값을 명확하게 출력하도록 상단에 print문을 추가합니다. 이로써 Railway에서 환경변수가 실제로 잘 전달되는지 로그로 확인할 수 있습니다.
+    # 서버 시작 시 환경변수 확인을 위한 디버그 로그
     print("DEBUG: CUSTOM_TURN_SERVER =", os.environ.get("CUSTOM_TURN_SERVER"))
     print("DEBUG: CUSTOM_TURN_USER =", os.environ.get("CUSTOM_TURN_USER"))
     print("DEBUG: CUSTOM_TURN_PASS =", os.environ.get("CUSTOM_TURN_PASS"))
+    print("DEBUG: TWILIO_ACCOUNT_SID =", os.environ.get("TWILIO_ACCOUNT_SID"))
+    print("DEBUG: TWILIO_AUTH_TOKEN =", "***" if os.environ.get("TWILIO_AUTH_TOKEN") else None)
 
     logging.info(f"🚀 Starting WebRTC Echo Server on Railway (port {port})")
-    logging.info(f"🔧 Twilio TURN: {'✅ Configured' if os.environ.get('TWILIO_ACCOUNT_SID') else '❌ Not configured'}")
+    logging.info(f"🔧 Twilio ICE: {'✅ Configured' if os.environ.get('TWILIO_ACCOUNT_SID') else '❌ Not configured'}")
+    logging.info(f"🔧 Custom TURN: {'✅ Configured' if os.environ.get('CUSTOM_TURN_SERVER') else '❌ Not configured'}")
     
     app = create_app()
     web.run_app(app, host="0.0.0.0", port=port)

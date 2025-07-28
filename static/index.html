@@ -115,6 +115,24 @@
                 console.log('✅ 서버에서 받은 ICE 서버:', data.iceServers);
                 console.log('📊 캐시 정보:', data.cacheInfo);
                 
+                // ICE 서버 타입 확인
+                const hasTwilioTurn = data.iceServers.some(server => 
+                    server.urls && server.urls.includes && 
+                    (server.urls.includes('twilio.com') || server.urls.includes('global.turn'))
+                );
+                const hasCustomTurn = data.iceServers.some(server => 
+                    server.urls && server.urls.includes('turn:') && 
+                    !server.urls.includes('twilio.com')
+                );
+                
+                if (hasTwilioTurn) {
+                    console.log('🎯 Twilio TURN 서버 감지됨!');
+                } else if (hasCustomTurn) {
+                    console.log('🔧 Custom TURN 서버 감지됨');
+                } else {
+                    console.log('⚠️ STUN 서버만 사용 중');
+                }
+                
                 if (data.error) {
                     console.warn('⚠️ 서버 경고:', data.error);
                 }
@@ -214,14 +232,26 @@
                     const candidate = event.candidate.candidate;
                     // candidate 타입 구분을 더 명확하게 표시
                     let type = '-';
+                    let serverType = '';
+                    
                     if (candidate.includes('typ relay')) {
                         type = 'TURN relay';
+                        // Twilio TURN 서버 감지
+                        if (candidate.includes('global.turn.twilio.com') || candidate.includes('turn.twilio.com')) {
+                            serverType = ' (Twilio)';
+                        } else {
+                            serverType = ' (Custom)';
+                        }
                     } else if (candidate.includes('typ srflx')) {
                         type = 'STUN srflx';
+                        if (candidate.includes('stun.l.google.com')) {
+                            serverType = ' (Google)';
+                        }
                     } else if (candidate.includes('typ host')) {
                         type = 'Host';
                     }
-                    console.log(`[ICE] ${type} candidate:`, candidate);
+                    
+                    console.log(`[ICE] ${type}${serverType} candidate:`, candidate);
                 } else {
                     console.log('ICE gathering complete');
                 }
