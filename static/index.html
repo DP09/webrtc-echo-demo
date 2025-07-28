@@ -137,11 +137,32 @@
                     console.warn('⚠️ 서버 경고:', data.error);
                 }
                 
-                // RTCPeerConnection 생성 (TURN 우선 설정)
+                // TURN 서버 확인 및 설정 결정
+                const turnOnlyServers = data.iceServers.filter(server => 
+                    server.urls && server.urls.includes('turn:')
+                );
+                
+                let iceConfig;
+                if (turnOnlyServers.length > 0) {
+                    // Twilio TURN 서버가 있을 때 - TURN만 사용
+                    console.log('🎯 TURN 전용 서버 사용:', turnOnlyServers);
+                    iceConfig = {
+                        iceServers: turnOnlyServers,
+                        iceTransportPolicy: 'relay'  // TURN만 사용
+                    };
+                } else {
+                    // TURN 서버가 없을 때 - 모든 서버 사용 (로컬/개발용)
+                    console.log('⚠️ TURN 서버 없음 - 모든 ICE 서버 사용:', data.iceServers);
+                    iceConfig = {
+                        iceServers: data.iceServers,
+                        iceTransportPolicy: 'all'  // 모든 연결 방식 허용
+                    };
+                }
+                
+                // RTCPeerConnection 생성
                 pc = new RTCPeerConnection({
-                    iceServers: data.iceServers,
+                    ...iceConfig,
                     iceCandidatePoolSize: 10,
-                    iceTransportPolicy: 'relay',  // TURN만 사용 (PaaS 환경에서 필수)
                     bundlePolicy: 'max-bundle',
                     rtcpMuxPolicy: 'require'
                 });
@@ -215,6 +236,14 @@
                 } else if (pc.iceConnectionState === 'disconnected') {
                     console.warn('⚠️ ICE 연결 끊김 - 자동 재연결 대기');
                     showStatus('🔄 연결 끊김, 재연결 시도 중...', 'connecting');
+                    
+                    // 10초 후에도 disconnected면 강제 실패 처리
+                    setTimeout(() => {
+                        if (pc && pc.iceConnectionState === 'disconnected') {
+                            console.error('❌ 연결 타임아웃 - TURN 서버 연결 실패');
+                            showStatus('❌ TURN 서버 연결 타임아웃', 'error');
+                        }
+                    }, 10000);
                 } else if (pc.iceConnectionState === 'checking') {
                     showStatus('🔍 TURN 서버 연결 확인 중...', 'connecting');
                 } else if (pc.iceConnectionState === 'connected') {
